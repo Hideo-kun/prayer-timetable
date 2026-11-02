@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prayer Attendance</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#16181d;--mu:#6b7280;--bd:#e3e6eb;--ac:#4f46e5;--ok:#16a34a;--okbg:#dcfce7;--no:#dc2626}
+:root[data-theme=dark]{--bg:#0f1115;--card:#181b21;--tx:#eceef2;--mu:#9aa1ad;--bd:#2a2f38;--ac:#818cf8;--ok:#4ade80;--okbg:#14351f;--no:#f87171}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.4 system-ui,-apple-system,Segoe UI,sans-serif;padding:12px;max-width:900px;margin:auto}
+h1{font-size:20px;margin:0}h2{font-size:16px;margin:0 0 8px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:12px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.sp{justify-content:space-between}
+input{flex:1;min-width:0;padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx);font-size:16px}
+button{padding:9px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--card);color:var(--tx);font-size:14px;cursor:pointer}
+button.p{background:var(--ac);border-color:var(--ac);color:#fff}
+button.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+.msg{color:var(--no);font-size:13px;min-height:16px;margin-top:6px}
+.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.stat{background:var(--bg);border-radius:10px;padding:8px 10px}.stat b{font-size:20px;display:block}.stat span{color:var(--mu);font-size:12px}
+.tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px}.tabs button{white-space:nowrap}
+.sc{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:560px}
+th,td{padding:6px 4px;text-align:center;border-bottom:1px solid var(--bd);font-size:13px}
+th small{display:block;color:var(--mu);font-weight:400}
+td:first-child,th:first-child{text-align:left;position:sticky;left:0;background:var(--card);padding-left:6px;min-width:110px}
+.cell{width:34px;height:34px;padding:0;border-radius:8px;font-size:16px}
+.cell.t{background:var(--okbg);color:var(--ok);border-color:var(--ok)}
+.cell.f{opacity:.35;cursor:not-allowed}
+.d{display:inline-block;width:34px;line-height:34px;color:var(--mu)}.d.t{color:var(--ok);font-weight:700}
+.x{color:var(--no);border:0;background:none;padding:2px 6px}
+.lb div{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd)}
+.lb small{color:var(--mu);display:block}.badge{color:var(--ok);font-weight:700}
+.hide{display:none}.mu{color:var(--mu);font-size:13px}
+</style>
+</head>
+<body>
+<div class="row sp" style="margin-bottom:12px">
+  <h1>🙏 Prayer Attendance</h1>
+  <div class="row"><button id="th">🌓</button><button id="mb"></button></div>
+</div>
+
+<div class="card">
+  <h2>Add your name</h2>
+  <div class="row"><input id="nm" placeholder="Your name" maxlength="30"><button class="p" id="add">Add</button></div>
+  <div class="msg" id="addmsg"></div>
+</div>
+
+<div class="card hide" id="stc"><div class="stats" id="stats"></div></div>
+
+<div class="card">
+  <div class="row sp"><button id="pv">‹</button><b id="wl"></b><button id="nx">›</button></div>
+  <div class="tabs" id="tabs" style="margin-top:8px"></div>
+  <input id="q" placeholder="Search names…" style="margin:8px 0;width:100%;flex:none">
+  <div class="sc"><table id="tb"></table></div>
+  <div class="row sp" style="margin-top:8px"><span class="mu" id="live"></span><button id="csv" class="hide">⬇ CSV</button></div>
+</div>
+
+<div class="card lb">
+  <div class="row sp"><h2>🏆 Leaderboard</h2><div class="row"><button id="lw">Week</button><button id="lm" class="on">Month</button></div></div>
+  <div id="lbl"></div>
+</div>
+
+<script>
+const API='/api/data', DN=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const $=s=>document.querySelector(s);
+let names={}, ticks=new Set(), pw=localStorage.getItem('pw')||'', isMaster=false, ws, q='', lbMode='month';
+const today=()=>new Date(Date.now()+36e5).toISOString().slice(0,10);
+const add=(s,n)=>{const d=new Date(s+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10)};
+const mon=s=>add(s,-((new Date(s+'T00:00:00Z').getUTCDay()+6)%7));
+const week=m=>[0,1,2,3,4,5,6].map(i=>add(m,i));
+const mo=s=>s.slice(0,7);
+const wmonth=m=>mo(add(m,3)); // a week belongs to the month its Thursday falls in
+ws=mon(today());
+const has=(d,id)=>ticks.has(d+'|'+id);
+const count=(id,days)=>days.filter(d=>has(d,id)).length;
+function monthDays(m){const out=[];let d=m+'-01';while(mo(d)===m){out.push(d);d=add(d,1)}return out}
+function monthWeeks(m){const out=[];let s=mon(m+'-01');while(s<=m+'-31'){if(wmonth(s)===m)out.push(s);s=add(s,7)}return out}
+async function api(body){const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,pw})});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Error');return j}
+async function load(){
+  try{const j=await (await fetch(API,{cache:'no-store'})).json();names=j.names;ticks=new Set(j.ticks);$('#live').textContent='Live · updated '+new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});render()}
+  catch(e){$('#live').textContent='Offline — retrying…'}
+}
+function ids(){return Object.keys(names).sort().filter(i=>names[i].toLowerCase().includes(q))}
+function render(){
+  const T=today(), days=week(ws), M=wmonth(ws), all=Object.keys(names);
+  $('#mb').textContent=isMaster?'Master ✓ (log out)':'Master login';
+  $('#csv').classList.toggle('hide',!isMaster);
+  $('#stc').classList.toggle('hide',!isMaster);
+  $('#wl').textContent=days[0].slice(5)+' → '+days[6].slice(5)+(ws===mon(T)?' (this week)':'');
+  $('#tabs').innerHTML=monthWeeks(M).map((w,i)=>`<button class="${w===ws?'on':''}" data-w="${w}">W${i+1} · ${w.slice(8)}/${w.slice(5,7)}</button>`).join('');
+  const wt=all.reduce((a,i)=>a+count(i,days),0), mt=all.reduce((a,i)=>a+count(i,monthDays(M)),0);
+  $('#stats').innerHTML=[['Total names',all.length],['Prayed today',all.filter(i=>has(T,i)).length],['This week',wt+' / '+all.length*7],['This month',mt]].map(([a,b])=>`<div class="stat"><b>${b}</b><span>${a}</span></div>`).join('');
+  let h=`<tr><th>Name</th>${days.map((d,i)=>`<th>${DN[i]}<small>${d.slice(8)}</small></th>`).join('')}<th>Week</th><th>Total</th></tr>`;
+  for(const id of ids()){
+    h+=`<tr><td>${isMaster?`<button class="x" data-rm="${id}">✕</button>`:''}${esc(names[id])}</td>`+days.map(d=>{
+      const t=has(d,id), fut=d>T;
+      if(isMaster)return `<td><button class="cell ${t?'t':''} ${fut?'f':''}" data-id="${id}" data-d="${d}" ${fut?'disabled':''}>${t?'✓':''}</button></td>`;
+      return `<td><span class="d ${t?'t':''}">${t?'✓':'·'}</span></td>`}).join('')+
+      `<td><b>${count(id,days)}/7</b></td><td>${[...ticks].filter(k=>k.endsWith('|'+id)).length}</td></tr>`;
+  }
+  if(isMaster)h+=`<tr><td><b>Daily</b></td>${days.map(d=>`<td><b>${all.filter(i=>has(d,i)).length}</b></td>`).join('')}<td><b>${wt}</b></td><td></td></tr>`;
+  $('#tb').innerHTML=h;
+  $('#lw').classList.toggle('on',lbMode==='week');$('#lm').classList.toggle('on',lbMode==='month');
+  let rows;
+  if(lbMode==='week')rows=all.map(i=>({i,n:count(i,days),sub:'',full:count(i,days)===7}));
+  else{
+    const md=monthDays(M), elapsed=md.filter(d=>d<=T), ws2=monthWeeks(M);
+    rows=all.map(i=>({i,n:count(i,md),sub:ws2.map((w,k)=>`W${k+1} ${count(i,week(w).filter(d=>mo(d)===M))}/${week(w).filter(d=>mo(d)===M).length}`).join(' · '),full:elapsed.length>0&&count(i,elapsed)===elapsed.length}));
+  }
+  rows.sort((a,b)=>b.n-a.n||names[a.i].localeCompare(names[b.i]));
+  $('#lbl').innerHTML=rows.filter(r=>r.n>0).slice(0,15).map((r,k)=>`<div><span>${k+1}. ${esc(names[r.i])} ${r.full?'<span class="badge">🏆 '+(lbMode==='week'?'Full week':'Full month')+'</span>':''}<small>${r.sub}</small></span><b>${r.n}</b></div>`).join('')||'<span class="mu">No ticks yet.</span>';
+}
+const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+$('#add').onclick=async()=>{const n=$('#nm').value.trim(),m=$('#addmsg');m.textContent='';
+  if(n.length<2){m.textContent='Enter your name';return}
+  if(Object.values(names).some(x=>x.toLowerCase()===n.toLowerCase())){m.textContent='That name is already on the list';return}
+  try{await api({action:'add',name:n});$('#nm').value='';await load()}catch(e){m.textContent=e.message}};
+$('#nm').onkeydown=e=>{if(e.key==='Enter')$('#add').click()};
+$('#q').oninput=e=>{q=e.target.value.toLowerCase();render()};
+$('#pv').onclick=()=>{ws=add(ws,-7);render()};$('#nx').onclick=()=>{ws=add(ws,7);render()};
+$('#tabs').onclick=e=>{if(e.target.dataset.w){ws=e.target.dataset.w;render()}};
+$('#lw').onclick=()=>{lbMode='week';render()};$('#lm').onclick=()=>{lbMode='month';render()};
+$('#th').onclick=()=>{const d=document.documentElement,n=d.dataset.theme==='dark'?'light':'dark';d.dataset.theme=n;localStorage.setItem('theme',n)};
+$('#tb').onclick=async e=>{
+  const b=e.target.closest('button');if(!b||!isMaster)return;
+  if(b.dataset.rm){if(!confirm('Remove '+names[b.dataset.rm]+' and all their ticks?'))return;
+    try{await api({action:'remove',id:b.dataset.rm});await load()}catch(x){alert(x.message)}return}
+  const {id,d}=b.dataset,on=!has(d,id),k=d+'|'+id;
+  on?ticks.add(k):ticks.delete(k);render();
+  try{await api({action:'tick',id,date:d,on})}catch(x){alert(x.message);await load()}};
+$('#mb').onclick=async()=>{
+  if(isMaster){isMaster=false;pw='';localStorage.removeItem('pw');render();return}
+  const p=prompt('Master password');if(!p)return;pw=p;
+  try{await api({action:'login'});isMaster=true;localStorage.setItem('pw',p);render()}catch(e){pw='';alert(e.message)}};
+$('#csv').onclick=()=>{
+  const days=week(ws),M=wmonth(ws),md=monthDays(M);
+  const rows=[['Name',...days.map((d,i)=>DN[i]+' '+d),'Week','Month','All time']];
+  for(const i of Object.keys(names).sort())rows.push([names[i],...days.map(d=>has(d,i)?1:0),count(i,days),count(i,md),[...ticks].filter(k=>k.endsWith('|'+i)).length]);
+  const c=rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([c],{type:'text/csv'}));a.download='prayer-'+days[0]+'.csv';a.click()};
+document.documentElement.dataset.theme=localStorage.getItem('theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');
+(async()=>{if(pw){try{await api({action:'login'});isMaster=true}catch(e){pw='';localStorage.removeItem('pw')}}await load();setInterval(load,5000)})();
+</script>
+</body>
+</html>
